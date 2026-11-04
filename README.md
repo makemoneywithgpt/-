@@ -1,10 +1,10 @@
 # 바이낸스 USDT-M 선물 시장 데이터 수집기
 
-Python 3.11 이상. BTCUSDT·ETHUSDT의 **USDT-M 선물** 1시간봉을 공식 무료 공개 데이터에서 수집합니다. 기본 범위는 2023-01-01 00:00 UTC부터 실행 시점의 마지막 완료 봉까지입니다. 주문 기능·계좌 접근·API 키는 없습니다.
+Python 3.12 이상. BTCUSDT·ETHUSDT의 **USDT-M 선물** 1시간봉을 공식 무료 공개 데이터에서 수집합니다. 기본 범위는 2023-01-01 00:00 UTC부터 실행 시점의 마지막 완료 봉까지입니다. 주문 기능·계좌 접근·API 키는 없습니다.
 
 ## 1. 설치 (Windows PowerShell)
 
-Python 3.11 이상을 설치할 때 `Add Python to PATH`를 선택하세요. 이 README가 있는 폴더에서 PowerShell을 열고 아래 명령을 차례로 실행합니다.
+Python 3.12 이상을 설치할 때 `Add Python to PATH`를 선택하세요. 이 README가 있는 폴더에서 PowerShell을 열고 아래 명령을 차례로 실행합니다.
 
 ```powershell
 py -3 -m venv .venv
