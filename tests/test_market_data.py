@@ -18,7 +18,7 @@ def candles(n=8):
 
 def test_normalize_utc():
     f = candles()
-    assert str(f.open_time.dtype) == 'datetime64[ns, UTC]'
+    assert str(f.open_time.dt.tz) == 'UTC'  # pandas 3.x may choose us or ns precision
     assert f.quote_volume.sum() == 8000
     assert utc('2023-01-01T09:00:00+09:00') == f.open_time.iloc[0]
 
