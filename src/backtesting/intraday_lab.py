@@ -20,6 +20,12 @@ NAMES=['pullback_reclaim','breakout_20']
 
 def load_verified(data_dir,v08_dir,symbol):
     root=Path(data_dir)/'klines'/symbol;path=root/'15m.parquet';meta=root/'15m.provenance.json'
+    if (root/'integrity.provenance.json').exists():
+        if meta.exists():raise ValueError('일반/복구 manifest 동시 존재: 모호한 출처 차단')
+        from .integrity_loader import validate_bundle
+        start,end=window(symbol,v08_dir)
+        frame,info=validate_bundle(root,symbol,start,end)
+        return frame,info,start,end
     if not path.is_file() or not meta.is_file():raise ValueError(f'{symbol}: 15m 수집/1h 대조가 완료되지 않았습니다. intraday_data 오류를 먼저 해결하세요 ({meta}).')
     info=json.loads(meta.read_text());start,end=window(symbol,v08_dir)
     if info['symbol']!=symbol or info['start']!=start.isoformat() or info['end_exclusive']!=end.isoformat():
@@ -114,6 +120,8 @@ def main(argv=None):
     args=parser.parse_args(argv);out=args.output_dir.resolve()
     protected=[args.v08_dir.resolve(),Path('.venv').resolve()]+[(args.data_dir/k).resolve() for k in
         ['klines','backtests','diagnostics','regimes','experiments','strategy_lab_v05','root_cause_v06','exit_policy_v07','timeframe_v08','intraday_downloads_v09']]
+    # Verified inputs live under a new data-dir; keep original default results protected too.
+    protected += [(Path('data')/k).resolve() for k in ['klines','backtests','diagnostics','regimes','experiments','strategy_lab_v05','root_cause_v06','exit_policy_v07','timeframe_v08','intraday_downloads_v09']]
     if any(out==p or p in out.parents or out in p.parents for p in protected):
         print('기존 데이터/결과/.venv와 겹치는 출력 금지',file=sys.stderr);return 1
     try:out.mkdir(parents=True,exist_ok=False)

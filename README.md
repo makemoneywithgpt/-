@@ -703,3 +703,90 @@ Python 3.12에서 합성 자동 테스트를 실행했습니다. Windows Python 
 전체 기간 단타 성과는 계산하지 않았으며 개선을 주장하지 않습니다.
 별도 2023-01-01 하루 표본은 BTC/ETH 각각 실제 15m 96개와 1h 24개 대조를 통과했습니다.
 하루 표본은 200h 추세 워밍업이 부족하여 무거래로 보고서 경로만 확인했으며 전략 수익성 검증이 아닙니다.
+
+## 데이터 정합성 조사·격리 복구 v0.9.1 (Issue #11)
+
+새 전략이나 성과 조정이 아니라 **공식 원천의 누락/불일치 조사와 검증된 데이터만의 복구**입니다.
+원본 `1h.parquet`와 v0.1~v0.8 및 v0.9 기존 보고서를 덮어쓰지 않습니다.
+
+### Windows 실행 순서
+
+1. 신규 **`integrity_sources.py`, `integrity_audit.py`, `integrity_loader.py`**를 `src/backtesting/`에 복사하세요.
+   같은 폴더의 **`intraday_lab.py`는 최신 파일로 갱신**합니다. 사용자 명시 허용에 따른 로더/원본 보호 경로만 변경하며
+   전략·신호·체결·청산·비용 계산은 바꾸지 않았습니다. 나머지 기존 모듈과 원본 데이터는 유지합니다.
+2. 저장소 폴더 CMD에서 공식 아카이브/공개 REST 교차 검증을 실행합니다.
+
+```cmd
+.venv\Scripts\python.exe -m backtesting.integrity_audit --symbols BTCUSDT ETHUSDT
+```
+
+3. **종료 코드 0**, `data/intraday_integrity_v091/status.json`의 `status=verified`,
+   종목별 보고서의 완전 검증을 모두 확인한 경우에만 새 검증 입력으로 연구를 실행하세요.
+   오류/미해결/지역 제한이면 연구 실행을 중단합니다.
+
+```cmd
+.venv\Scripts\python.exe -m backtesting.intraday_lab --symbols BTCUSDT ETHUSDT --data-dir data/intraday_v09_verified_input --output-dir data/intraday_v091_research
+```
+
+조사 보고서는 **`data/intraday_integrity_v091/{BTCUSDT,ETHUSDT}/report.md`**, 상세 근거는 `audit.json`,
+차이 표는 `mismatches.csv`입니다. 실패 종목은 `error.json`, 전체는 `status.json`의 `blocked`와 종료 코드 1입니다.
+예전 출력이 있으면 새 `--output-dir data/intraday_integrity_v091_run2`를 지정합니다.
+원본 데이터 위치는 `--data-dir`, 원래 v0.8 기간은 `--v08-dir`, 캐시는 `--cache-dir`,
+기존 v0.9 캐시 위치는 `--legacy-cache`로 지정합니다. 과거 캐시는 변경하지 않고 재사용합니다.
+
+### 무엇을 검증하는가
+
+- 정확한 UTC 누락 시각/연속 구간, URL·조회 파라미터·HTTP·검증 시각·공식 checksum·ZIP CSV 개수·행 수를 기록합니다.
+  캐시 재사용의 `http_status=null`은 현재 응답 200을 뜻하지 않습니다.
+  원래 수집시각이 metadata에 없으면 unknown으로 표시하고 파일 mtime을 수집시각으로 오인하지 않습니다.
+- 파일 404, 월 ZIP 내부 누락, REST 지역/권한 제한·네트워크 실패, 실제 가격/거래량 불일치를 구분합니다.
+  checksum 통과는 파일 무결성이지 모든 시간봉 존재의 증명이 아닙니다.
+  문제 날짜의 캐시 checksum은 현재 공식 값도 재조회하며 변경 감지 시 이전 캐시를 보존하고 중단합니다.
+- 기존 1h의 행별 원천이 기록되지 않았다면 현물 혼용/REST 혼용이라고 단정하지 않습니다.
+  공식 월별/일별 15m, 공식 월별/일별 1h, REST 15m/1h와 비교해 일치/불일치만 근거로 기록합니다.
+  원본 1h SHA256과 전후 불변 여부를 확인합니다.
+- 원본 CSV decimal을 보존해 문제 시간의 정확한 집계값과 절대/상대 차이를 기록합니다.
+  기존 공차(가격 절대 1e-8+상대 1e-10, 기초 거래량 절대 1e-6+상대 1e-8)는 바꾸지 않습니다.
+  실제 큰 가격/거래량 차이를 float 문제로 넘기지 않습니다.
+- 누락 보충/정정은 해당 범위 REST15m와 독립 REST1h가 완전한 시각/개수/값으로 일치하고,
+  조회 가능한 일별15m 및 공식1h의 관측값과 모순되지 않을 때만 허용합니다.
+  아카이브 일부가 없더라도 존재하는 값은 반드시 대조합니다. 월/일/REST 모순을 다수결로 지우지 않습니다.
+  REST조차 누락/지역 제한이면 복구를 확정하지 않습니다. 기간 축소나 누락일 제외로 연구를 통과시키지 않습니다.
+
+### 복구 입력과 로더의 별도 안전장치
+
+모든 구간이 검증된 경우에만 **`data/intraday_v09_verified_input/klines/{symbol}/`**에
+별도 `15m.parquet`, 검증 기준 `1h.parquet`, 원본 그대로의 `original_1h.parquet`,
+`integrity.provenance.json`, `verification_record.json`, 공식 증거 파일 `evidence/`를 원자적으로 발행합니다.
+중간 staging은 성공 입력으로 인식하지 않으며 기존 복구 폴더도 덮어쓰지 않습니다.
+원본 데이터 파일은 원래 경로에 그대로 남습니다.
+
+`integrity.provenance.json`은 REST를 사용한 사실을 정직하게 기록합니다.
+기존 아카이브 전용 `15m.provenance.json`을 위조하거나 source 검사를 제거하지 않습니다.
+승인된 새 로더는 다음을 **오프라인에서 다시** 확인한 뒤 연구기에 넘깁니다.
+
+- manifest schema/status/종목/기간, 원본 사본·두 Parquet·감사 기록·공식 증거 파일의 SHA256
+- 공식 USD-M archive URL+checksum과 공개 `fapi/v1/klines`의 interval/범위/schema
+- 모든 복구 15m 행이 저장된 공식 증거와 일치하는지, 새 1h가 원본 사본 또는 독립 공식 증거와 일치하는지
+- 미해결/누락/차이 없는 감사 기록, 필수 문제 날짜 판정 누락 여부 및 날짜별 REST15m↔REST1h와 아카이브 재대조
+- 전체 구간 15m 검증과 동일 공차의 1h parity
+
+하나라도 실패하면 기존처럼 연구를 중단합니다. 일반 아카이브 manifest와 복구 manifest가 동시에 있으면
+출처가 모호하므로 거부합니다. 기존 아카이브 입력 경로의 검사도 그대로 유지합니다.
+전략/신호/체결/비용 계산을 바꾸지 않습니다. 원본 결과 경로 보호는 복구 입력을 별도 data-dir로 읽을 때도 유지합니다.
+
+### 이번 실제 조사 결과와 한계
+
+2026-10-28은 두 종목 모두 공식 15m 월 ZIP 내부 96개 누락과 일 ZIP 404를 확인했습니다.
+1h 월 ZIP에도 같은 날짜 24개가 없고 일 ZIP은 404였습니다.
+문제 범위의 공개 REST15m/1h는 클라우드에서 **HTTP 451 지역 제한**을 반환하여 독립 보충을 확정할 수 없습니다.
+
+BTC 2023-11-10은 월별15m와 일별15m가 서로 달랐고, 일별15m 합성은 공식 월별/일별1h와 일치했습니다.
+BTC/ETH 2025-01-29는 월별/일별15m끼리는 같지만 1h와 거래량이 달랐습니다.
+기존 1h는 공식 월별/일별1h와 일치했으므로 원본을 임의로 고치지 않았습니다.
+공식 원천 사이 차이가 확인된 것이며, 실제 체결의 참값·공식 수정 시점·내부 발생 원인까지 확정한 것은 아닙니다.
+REST 제한을 우회하지 않았고 **복구 성공이나 전체 실데이터 연구 성공을 주장하지 않습니다.**
+
+클라우드 Python 3.12에서 synthetic 복구/변조/원본 불변/REST gap-fill/부분 실패/기존 회귀 테스트를 실행합니다.
+Windows Python 3.15의 실제 데이터 성공은 로컬 검증 전까지 미확인입니다.
+실거래/주문/API 키 기능은 없습니다. 역사적 자료는 모두 관찰된 in-sample이며 수익성 인증이 아닙니다.
