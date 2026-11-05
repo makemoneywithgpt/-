@@ -790,3 +790,73 @@ REST 제한을 우회하지 않았고 **복구 성공이나 전체 실데이터 
 클라우드 Python 3.12에서 synthetic 복구/변조/원본 불변/REST gap-fill/부분 실패/기존 회귀 테스트를 실행합니다.
 Windows Python 3.15의 실제 데이터 성공은 로컬 검증 전까지 미확인입니다.
 실거래/주문/API 키 기능은 없습니다. 역사적 자료는 모두 관찰된 in-sample이며 수익성 인증이 아닙니다.
+
+## 별도 연속 연구 창 v0.9.2 (Issue #12)
+
+기존 **전체 기간 연구/실패 보고서를 교체하거나 성공으로 바꾸지 않습니다.**
+알려진 출처 충돌·누락 날짜를 결과 계산 전에 제외한 하나의 연속 창을 고정합니다.
+
+- 시작 포함: **2025-02-01T00:00:00Z**
+- 종료 제외: **2026-10-28T00:00:00Z**
+- 목적: 같은 엄격한 데이터 검증을 통과할 수 있는 별도 기간의 연구.
+  기간 축소/선택 편향과 비교가능성 저하가 있으며 진짜 OOS가 아닙니다.
+  이 창에서 새 불일치가 나오면 오류로 멈춥니다. 자동으로 날짜를 삭제하거나 창을 줄이지 않습니다.
+
+### Windows 복사와 두 명령
+
+v0.9.1이 설치되어 있다면 신규 **`intraday_window.py`**를 `src/backtesting/`에 복사하고,
+같은 폴더의 **`integrity_audit.py`, `intraday_lab.py`**를 최신 파일로 갱신하세요.
+`integrity_sources.py`, `integrity_loader.py` 등 기존 v0.9.1 파일은 계속 필요합니다.
+신호·엔진·손절/익절·수수료·리스크 함수는 변경하지 않습니다.
+
+CMD에서 먼저 지정 창을 감사합니다.
+
+```cmd
+.venv\Scripts\python.exe -m backtesting.integrity_audit --symbols BTCUSDT ETHUSDT --start 2025-02-01T00:00:00Z --end 2026-10-28T00:00:00Z --output-dir data/intraday_integrity_v092_window --verified-dir data/intraday_v092_verified_input
+```
+
+종료 코드 0이고 **`data/intraday_integrity_v092_window/status.json`의 `status=verified`,
+`backtest_allowed=true`**를 확인한 경우에만 다음 명령을 실행하세요.
+
+```cmd
+.venv\Scripts\python.exe -m backtesting.intraday_lab --symbols BTCUSDT ETHUSDT --data-dir data/intraday_v092_verified_input --start 2025-02-01T00:00:00Z --end 2026-10-28T00:00:00Z --output-dir data/intraday_v092_window_research
+```
+
+오류이면 둘째 명령을 실행하지 마세요. 실제 새 불일치 원인을 보고하고 기간 변경은 별도 승인받아야 합니다.
+캐시는 기본 **`data/intraday_integrity_v091_cache`**를 계속 재사용하고, 기존
+`data/intraday_downloads_v09`도 검증 흔적을 보존하며 읽기만 합니다.
+같은 출력 경로가 이미 있으면 덮어쓰지 않고 오류입니다. 재실행은 새 출력/검증입력 폴더를 명시하세요.
+
+### 기간 인자와 게이트
+
+`--start`와 `--end`는 반드시 함께, 시작<종료인 UTC 정시로 지정합니다.
+명시 기간은 v0.8 기간을 덮어쓰는 인자이며, v0.8 JSON을 수정하지 않습니다.
+기존 v0.9.1 호출처럼 기간 인자가 없으면 이전 v0.8 기간/기본 경로 선택을 그대로 유지합니다.
+기간 인자를 함께 지정한 호출의 기본 출력 경로는 위 v0.9.2 전용 경로입니다.
+
+새 창 검증은 15m 누락/중복/정렬/UTC 경계/가격/거래량, 공식 ZIP checksum/출처,
+15m 합성 1h와 원본 1h의 동일 공차 parity를 그대로 요구합니다.
+전체 기간 manifest를 단순히 잘라 새 창의 verified로 취급하지 않습니다.
+**연구 전에 integrity.provenance.json의 기간이 --start/--end와 정확히 같아야** 하며,
+새 창 연구에서는 일반 아카이브 marker만으로 우회할 수 없습니다.
+기존 v0.9.1 검증 로더의 증거 파일/hash·원본 사본·복구 날짜 판정·완전성 검사를 모두 다시 수행합니다.
+원본 1h와 기존 연구/감사 폴더를 보호하며 새 검증 입력에만 씁니다.
+
+감사 전 `window_spec.json`, 연구 전 `frozen_spec.json`에 선택 기간과 편향 안내를 남깁니다.
+`intraday_v092_window_research/{symbol}/report.md`, `research.json`, 최상위 `comparison.json/csv`가 결과입니다.
+첫 200개 완료 1h SMA 및 15m EMA/20봉 워밍업은 **선택한 시작 시각부터** 계산합니다.
+시작 이전 이력을 끌어와 200h 워밍업을 없애지 않습니다.
+고정 pullback_reclaim/breakout_20, SL1%/TP2%/6h/위험1%/최대1배,
+fee .0004/slippage .0002 편도와 비용2배 조건, 종료/미래정보 방지 규칙은 그대로입니다.
+
+### 비교와 검증 범위
+
+기존 전체 2023~2026 스윙 +0.74%와 이 부분 창 단타 수익률은 **직접 비교하지 않습니다**.
+동일 UTC 창·자본·비용의 신규 스윙 실행은 이번 최소 변경 범위에서 미실행이며 보고서에 제한을 명시합니다.
+양수라도 수익성 인증이 아니며 2025/2026 역시 관찰된 exploratory/in-sample입니다.
+
+클라우드의 별도 고정 창은 BTC/ETH 각각 **15m 60,864개**, 누락 0·1h parity 차이 0으로 검증했습니다.
+그 검증 입력으로 새 연구를 실행했고 **두 종목 모두 기본 단타 전략 2종이 순손실(`both_loss_reject`)**이었습니다.
+이를 이유로 창이나 임계값을 바꾸지 않았고, 기존 전체 기간 실패 상태도 그대로 남겼습니다.
+클라우드 실자료 실행과 Windows Python 3.15 로컬 성공은 별개이며 Windows는 아직 미검증입니다.
+실제 주문·계좌/API 키 기능은 없습니다.

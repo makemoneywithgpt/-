@@ -14,20 +14,23 @@ from .intraday_engine import IntradayConfig, simulate
 from .diagnostics import periods, table
 from .root_cause import grouped
 from .experiments import NOTICE
+from .intraday_window import selected_window,context
 
 NAMES=['pullback_reclaim','breakout_20']
 
 
-def load_verified(data_dir,v08_dir,symbol):
+def load_verified(data_dir,v08_dir,symbol,start=None,end=None):
     root=Path(data_dir)/'klines'/symbol;path=root/'15m.parquet';meta=root/'15m.provenance.json'
+    a,b=selected_window(symbol,v08_dir,start,end)
+    if start is not None and not (root/'integrity.provenance.json').exists():raise ValueError('명시 기간 연구는 완전 검증된 integrity.provenance.json이 필요합니다.')
     if (root/'integrity.provenance.json').exists():
         if meta.exists():raise ValueError('일반/복구 manifest 동시 존재: 모호한 출처 차단')
         from .integrity_loader import validate_bundle
-        start,end=window(symbol,v08_dir)
+        start,end=a,b
         frame,info=validate_bundle(root,symbol,start,end)
         return frame,info,start,end
     if not path.is_file() or not meta.is_file():raise ValueError(f'{symbol}: 15m 수집/1h 대조가 완료되지 않았습니다. intraday_data 오류를 먼저 해결하세요 ({meta}).')
-    info=json.loads(meta.read_text());start,end=window(symbol,v08_dir)
+    info=json.loads(meta.read_text());start,end=a,b
     if info['symbol']!=symbol or info['start']!=start.isoformat() or info['end_exclusive']!=end.isoformat():
         raise ValueError('15m provenance 기간/종목 불일치')
     if info['parity']['status']!='passed' or info['source']!='Binance public data futures/um 15m':raise ValueError('15m 공식 소스/parity 확인 불가')
@@ -58,12 +61,13 @@ def period_metrics(equity,trades,start,end,frequency):
     return result
 
 
-def research_symbol(data_dir,v08_dir,symbol,output):
-    f,provenance,start,end=load_verified(data_dir,v08_dir,symbol)
+def research_symbol(data_dir,v08_dir,symbol,output,start=None,end=None):
+    explicit=start is not None or end is not None
+    f,provenance,start,end=load_verified(data_dir,v08_dir,symbol,start,end)
     sig=features(f);output.mkdir(parents=True,exist_ok=False)
     sig.to_csv(output/'causal_features.csv',index=False,encoding='utf-8-sig')
     report=dict(symbol=symbol,start=start.isoformat(),end_exclusive=end.isoformat(),notice=NOTICE,
-                data_rows=len(f),parity=provenance['parity'],cases={},source_sha256=provenance['parquet_sha256'])
+                window_selection=context(start,end,explicit),data_rows=len(f),parity=provenance['parity'],cases={},source_sha256=provenance['parquet_sha256'])
     rows=[]
     for name in [*NAMES,'cash']:
         for multiplier in ([1,2] if name!='cash' else [1]):
@@ -94,7 +98,10 @@ def research_symbol(data_dir,v08_dir,symbol,output):
         positive_years=sum(y['equity_pnl']>0 for y in report['cases'][name+'_cost1']['yearly']),
         total_years=len(report['cases'][name+'_cost1']['yearly'])) for name in NAMES}
     report['historical_reference']='Issue #10 기재 2023-01-01~2026-11-04T13:00Z BTC 4h SMA +0.7425%는 사용자 과거 참조값(본 실행 검증 아님). 신호·청산·시간축이 달라 동일 정책의 인과 비교가 아니다.'
-    text=f'# {symbol} v0.9 15분봉 단타 연구\n\n기간 UTC: {start.isoformat()} ~ {end.isoformat()} (종료 제외).\n\n{NOTICE}\n\n'+report['historical_reference']+'\n\n'
+    if explicit:report['historical_reference']='기간이 다른 기존 스윙 수익률은 비교 기준으로 사용하지 않습니다. 동일 UTC 창·자본·비용의 신규 스윙 실행은 이번 범위에서 미실행입니다.'
+    version='v0.9.2 명시 연구 창' if explicit else 'v0.9'
+    text=f'# {symbol} {version} 15분봉 단타 연구\n\n기간 UTC: {start.isoformat()} ~ {end.isoformat()} (종료 제외).\n\n{NOTICE}\n\n'+report['historical_reference']+'\n\n'
+    text+=report['window_selection']['notice']+'\n\n'
     text+='1h 추세는 닫힌 봉 SMA50/200과 종가/중립 임계값 ±0.005를 사용합니다. 15m EMA20 회복 또는 이전20봉 돌파를 다음 15m 시가에 체결합니다. 반대 신호 청산/반전 없음, SL 1%·TP 2%·최대 6h(24개 15m), 초기 10,000 USDT, 위험 예산 1%, 최대 1배. 모두 고정 사전 가정입니다.\n'
     text+='각 전략과 비용 2배는 처음부터 독립 재실행했습니다. 비용은 개인 계정 실제 등급 확정값이 아니며 펀딩비 0, 실제 마진/청산/호가 미구현입니다. 같은 봉 양쪽 터치는 손절 우선, 손절 갭은 불리한 시가 체결입니다. 갭은 계획 위험 1%를 넘길 수 있습니다.\n'
     flat=[{k:v for k,v in r.items() if k!='config'} for r in rows]
@@ -115,13 +122,20 @@ def research_symbol(data_dir,v08_dir,symbol,output):
 def main(argv=None):
     parser=argparse.ArgumentParser(description='v0.9 고정 15m 당일 단타 오프라인 연구')
     parser.add_argument('--symbols',nargs='+',choices=['BTCUSDT','ETHUSDT'],default=['BTCUSDT','ETHUSDT'])
-    for flag,default in [('data-dir','data'),('v08-dir','data/timeframe_v08'),('output-dir','data/intraday_v09')]:
-        parser.add_argument('--'+flag,type=Path,default=Path(default))
-    args=parser.parse_args(argv);out=args.output_dir.resolve()
+    for flag,default in [('data-dir','data'),('v08-dir','data/timeframe_v08'),('output-dir',None)]:
+        parser.add_argument('--'+flag,type=Path,default=Path(default) if default else None)
+    parser.add_argument('--start');parser.add_argument('--end')
+    args=parser.parse_args(argv);explicit=args.start is not None or args.end is not None
+    try:
+        chosen=selected_window(None,args.v08_dir,args.start,args.end) if explicit else None
+    except ValueError as exc:print(f'기간 오류: {exc}',file=sys.stderr);return 1
+    args.output_dir=args.output_dir or Path('data/intraday_v092_window_research' if explicit else 'data/intraday_v09')
+    out=args.output_dir.resolve()
     protected=[args.v08_dir.resolve(),Path('.venv').resolve()]+[(args.data_dir/k).resolve() for k in
         ['klines','backtests','diagnostics','regimes','experiments','strategy_lab_v05','root_cause_v06','exit_policy_v07','timeframe_v08','intraday_downloads_v09']]
     # Verified inputs live under a new data-dir; keep original default results protected too.
     protected += [(Path('data')/k).resolve() for k in ['klines','backtests','diagnostics','regimes','experiments','strategy_lab_v05','root_cause_v06','exit_policy_v07','timeframe_v08','intraday_downloads_v09']]
+    if explicit:protected += [Path(k).resolve() for k in ['data/intraday_v09','data/intraday_v091_research','data/intraday_integrity_v091','data/intraday_integrity_v092_window','data/intraday_v092_verified_input']]
     if any(out==p or p in out.parents or out in p.parents for p in protected):
         print('기존 데이터/결과/.venv와 겹치는 출력 금지',file=sys.stderr);return 1
     try:out.mkdir(parents=True,exist_ok=False)
@@ -130,6 +144,7 @@ def main(argv=None):
     spec=dict(implementation_sha256={name:digest(Path(__file__).with_name(name)) for name in ['intraday_lab.py','intraday_engine.py','intraday_signals.py','intraday_data.py']},strategies=NAMES,config={**asdict(IntradayConfig()),'fee_rate':.0004,'slippage':.0002,'stress_multiplier':2},trend='closed 1h SMA50/200, abs gap >= .005 and close aligned',
               ema='span20 adjust=False min_periods20; prior/current crossing',breakout='prior20 excluding current',
               future_protocol='새로 수집한 관찰되지 않은 데이터 최소30일. 사전 정책/성과표를 동결하고 기존 연구와 별도 출력. 최적화/중간 재선정 금지. offline paper tracking only.')
+    if chosen is not None:spec['window_selection']=context(*chosen,True)
     (out/'frozen_spec.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     (out/'forward_protocol.md').write_text('''# 최소 30일 장래 오프라인 모의 추적 프로토콜
 
@@ -143,7 +158,7 @@ def main(argv=None):
     rows=[];failed=False;verdicts={}
     for symbol in dict.fromkeys(args.symbols):
         try:
-            result,verdict=research_symbol(args.data_dir,args.v08_dir,symbol,out/symbol)
+            result,verdict=research_symbol(args.data_dir,args.v08_dir,symbol,out/symbol,args.start,args.end)
             rows.extend(result);verdicts[symbol]=verdict
             print(f'{symbol}: 15m 연구 완료 {out/symbol}/report.md; 판단={verdict}')
         except (OSError,ValueError,TypeError,KeyError) as exc:

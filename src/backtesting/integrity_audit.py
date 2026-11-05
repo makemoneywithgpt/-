@@ -11,6 +11,7 @@ import pandas as pd
 from .data import utc
 from .intraday_data import STEP, aggregate_hourly, parity, validate15, digest, window
 from .integrity_sources import OfficialSources, quality
+from .intraday_window import selected_window,context
 
 COLS=['open','high','low','close','volume']
 
@@ -146,13 +147,13 @@ def publish_verified(candidate,reference,report,target):
     return info
 
 
-def investigate(symbol,start,end,data_dir,sources,output,verified_dir=None):
+def investigate(symbol,start,end,data_dir,sources,output,verified_dir=None,window_spec=None):
     output=Path(output);output.mkdir(parents=True,exist_ok=False)
     local_path=Path(data_dir)/'klines'/symbol/'1h.parquet'
     before=digest(local_path);local=pd.read_parquet(local_path);local['open_time']=pd.to_datetime(local.open_time,utc=True)
     quality(local,'1h');local=select(local,start,end)
     report=dict(symbol=symbol,start=start.isoformat(),end_exclusive=end.isoformat(),status='failed',provenance=[],
-        local_1h=dict(path=str(local_path),sha256=before,mtime_utc=pd.Timestamp(local_path.stat().st_mtime,unit='s',tz='UTC').isoformat(),
+        window_selection=window_spec or context(start,end,False),local_1h=dict(path=str(local_path),sha256=before,mtime_utc=pd.Timestamp(local_path.stat().st_mtime,unit='s',tz='UTC').isoformat(),
           collection_time='行별 수집시각/원천 원본 metadata 없음. mtime은 수집시각 증명이 아님.',
           source_claim='기존 코드가 futures/um 및 fapi/klines를 허용한다는 것은 원래 각 행 출처의 증명이 아니다. 현물 혼용으로 단정하지 않음.'),
         source_days={},unresolved=[])
@@ -259,7 +260,9 @@ def investigate(symbol,start,end,data_dir,sources,output,verified_dir=None):
 
 
 def markdown(report):
-    text=f'# {report["symbol"]} v0.9.1 데이터 정합성 조사\n\n상태: {report["status"]}\n\nUTC {report["start"]} ~ {report["end_exclusive"]} (종료 제외)\n\n'
+    version='v0.9.2 명시 연구 창' if report.get('window_selection',{}).get('explicit') else 'v0.9.1'
+    text=f'# {report["symbol"]} {version} 데이터 정합성 조사\n\n상태: {report["status"]}\n\nUTC {report["start"]} ~ {report["end_exclusive"]} (종료 제외)\n\n'
+    text+=report.get('window_selection',{}).get('notice','')+'\n\n'
     text+='원본 1h 및 v0.1~v0.8 결과를 수정하지 않았습니다. 수익률 계산/전략 실행은 하지 않습니다.\n\n'
     text+='## 확인된 증거\n\n원본 1h SHA256: '+report['local_1h']['sha256']+'\n\n'
     text+=report['local_1h']['collection_time']+'\n\n'+report['local_1h']['source_claim']+'\n\n'
@@ -278,23 +281,32 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description='v0.9.1 공식 아카이브/REST 교차검증 및 격리 복구')
     parser.add_argument('--symbols',nargs='+',choices=['BTCUSDT','ETHUSDT'],default=['BTCUSDT','ETHUSDT'])
     for flag,default in [('data-dir','data'),('cache-dir','data/intraday_integrity_v091_cache'),('legacy-cache','data/intraday_downloads_v09'),
-                         ('v08-dir','data/timeframe_v08'),('output-dir','data/intraday_integrity_v091'),('verified-dir','data/intraday_v09_verified_input')]:
-        parser.add_argument('--'+flag,type=Path,default=Path(default))
-    args=parser.parse_args(argv);out=args.output_dir.resolve();verified=args.verified_dir.resolve();cache=args.cache_dir.resolve()
+                         ('v08-dir','data/timeframe_v08'),('output-dir',None),('verified-dir',None)]:
+        parser.add_argument('--'+flag,type=Path,default=Path(default) if default else None)
+    parser.add_argument('--start');parser.add_argument('--end')
+    args=parser.parse_args(argv);explicit=args.start is not None or args.end is not None
+    try:
+        chosen=selected_window(None,args.v08_dir,args.start,args.end) if explicit else None
+    except ValueError as exc:print(f'기간 오류: {exc}',file=sys.stderr);return 1
+    args.output_dir=args.output_dir or Path('data/intraday_integrity_v092_window' if explicit else 'data/intraday_integrity_v091')
+    args.verified_dir=args.verified_dir or Path('data/intraday_v092_verified_input' if explicit else 'data/intraday_v09_verified_input')
+    out=args.output_dir.resolve();verified=args.verified_dir.resolve();cache=args.cache_dir.resolve()
     protected=[Path('.venv').resolve(),args.v08_dir.resolve(),args.legacy_cache.resolve()]+[(args.data_dir/k).resolve() for k in
         ['klines','backtests','diagnostics','regimes','experiments','strategy_lab_v05','root_cause_v06','exit_policy_v07','timeframe_v08','intraday_v09']]
     protected += [(Path('data')/k).resolve() for k in ['klines','backtests','diagnostics','regimes','experiments','strategy_lab_v05','root_cause_v06','exit_policy_v07','timeframe_v08','intraday_v09','intraday_downloads_v09']]
+    if explicit:protected += [Path(k).resolve() for k in ['data/intraday_integrity_v091','data/intraday_v09_verified_input','data/intraday_v091_research']]
     targets=[out,verified,cache]
     if any(x==p or p in x.parents or x in p.parents for x in targets for p in protected) or any(a==b or a in b.parents or b in a.parents for i,a in enumerate(targets) for b in targets[i+1:]):
         print('감사/복구/캐시 출력이 보호 경로 또는 서로와 겹침',file=sys.stderr);return 1
     try:out.mkdir(parents=True,exist_ok=False)
     except OSError as exc:print(f'새 감사 출력 필요: {exc}',file=sys.stderr);return 1
+    if chosen is not None:(out/'window_spec.json').write_text(json.dumps(context(*chosen,True),ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     status={};failed=False
     for symbol in dict.fromkeys(args.symbols):
         try:
-            start,end=window(symbol,args.v08_dir)
+            start,end=selected_window(symbol,args.v08_dir,args.start,args.end)
             sources=OfficialSources(cache,args.legacy_cache)
-            result=investigate(symbol,start,end,args.data_dir,sources,out/symbol,verified)
+            result=investigate(symbol,start,end,args.data_dir,sources,out/symbol,verified,context(start,end,explicit))
             status[symbol]=result['status'];failed|=result['status']!='verified'
             print(f'{symbol}: {result["status"]}. {out/symbol}/report.md')
         except (OSError,ValueError,KeyError,TypeError) as exc:
