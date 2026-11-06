@@ -26,7 +26,7 @@ def zip_bytes(f):
     for b in f.itertuples(index=False):
         rows.append([int(b.open_time.timestamp()*1000),b.open,b.high,b.low,b.close,b.volume,0,getattr(b,'quote_volume',1000),int(getattr(b,'trades',5)),getattr(b,'taker_buy_volume',4),getattr(b,'taker_buy_quote_volume',400),0])
     b=io.BytesIO()
-    with zipfile.ZipFile(b,'w') as z:z.writestr('data.csv',','.join(COLUMNS)+'\n'+'\n'.join(','.join(map(str,r)) for r in rows))
+    with zipfile.ZipFile(b,'w') as z:z.writestr(zipfile.ZipInfo('data.csv',date_time=(2025,1,1,0,0,0)),','.join(COLUMNS)+'\n'+'\n'.join(','.join(map(str,r)) for r in rows))
     return b.getvalue()
 
 
