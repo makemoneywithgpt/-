@@ -6,7 +6,7 @@
 
 1. ZIP을 쓰기 가능한 폴더에 압축 해제합니다. 이미 설치한 표준 Python 3.15 x64를 그대로 사용하세요. CMD 스크립트는 `py -3.15`, PATH의 `python`, `py -3` 순서로 확인합니다. free-threaded 빌드는 지원 범위 밖입니다.
 2. 움직이는 원본 GIF를 `assets/character.gif`로 복사하거나, 투명 PNG 프레임 두 장 이상을 `assets/frames/`에 넣습니다. 예를 들어 `001.png`, `002.png` 순으로 120ms 간격으로 재생됩니다. GIF는 원본 프레임 지연을 사용합니다. GIF와 PNG 폴더가 모두 있으면 GIF가 우선입니다.
-3. `run-windows.cmd`를 더블클릭합니다. 이 스크립트는 로컬 `.venv-windows`를 만들고 `requirements.txt`의 PySide6 Essentials를 설치한 뒤 앱을 실행합니다. 최초 다운로드에는 인터넷이 필요합니다. 이전 버전이 만든 `.venv`는 그대로 둡니다. 이미 `.venv-windows`를 만들었다면 이 환경을 재사용합니다. 수동으로 실행하려면 CMD에서 `setup-windows.cmd`를 실행한 뒤 `.venv-windows\Scripts\python.exe run.py`를 입력합니다.
+3. `run-windows.cmd`를 더블클릭합니다. 이 스크립트는 `%LOCALAPPDATA%\KMate\v`에 사용자별 가상환경을 만들고 `requirements.txt`의 PySide6 Essentials를 설치한 뒤 앱을 실행합니다. 최초 다운로드에는 인터넷이 필요합니다. OneDrive처럼 깊은 프로젝트 경로에서도 의존성 설치 경로를 짧게 유지하기 위해 이 위치를 사용합니다. 이전 버전이 프로젝트에 만든 `.venv`와 `.venv-windows`는 그대로 둡니다. 수동으로 실행하려면 CMD에서 `setup-windows.cmd`를 실행한 뒤 `"%LOCALAPPDATA%\KMate\v\Scripts\python.exe" run.py`를 입력합니다.
 
 기존에 선택한 캐릭터 경로가 있거나 파일명을 유지해야 한다면 위젯을 우클릭해 **설정**에서 GIF 또는 PNG 프레임 폴더를 선택하세요. 원본 경로와 바이트는 유지됩니다. 단일 PNG는 정지 이미지로 표시됩니다. 원본에 하늘 같은 불투명 배경이 있으면 화면에도 그대로 표시됩니다. 앱 창의 투명도는 원본 이미지의 배경을 제거하지 않습니다.
 
@@ -18,7 +18,7 @@ Python 3.15에서는 PySide6 Essentials 6.12.x와 PyInstaller 6.22.3 이상을 �
 
 1. Windows PC에서 `build-windows.cmd`를 실행합니다. 스크립트가 PyInstaller를 설치하고 자동 테스트와 리소스 검사를 통과한 뒤 `dist\KurimanjuMate\KurimanjuMate.exe`를 빌드합니다. 기존 배포 폴더가 있다면 먼저 다른 이름이나 위치로 옮겨 주세요.
 2. 배포 시 `dist\KurimanjuMate` 폴더 전체를 유지합니다. 원본 리소스는 EXE 옆 `assets`에 그대로 복사됩니다. 우클릭으로 선택한 외부 파일을 EXE와 함께 배포하려면 빌드 전에 위의 `assets` 구조에 복사하세요.
-3. `bundle-manifest.json`에서 애니메이션 형식과 프레임 수, 포함된 각 리소스의 SHA-256, Windows 플랫폼 및 GIF 플러그인 경로, 설정 저장 위치를 확인합니다. 빌드 과정이 복사본의 해시와 플러그인 파일을 확인합니다. 원본이 없는 경우 빌드는 경고를 표시하고 매니페스트에 `missing`을 기록합니다. CMD에서 `.venv-windows\Scripts\python.exe tools\verify_bundle.py --bundle dist\KurimanjuMate`를 실행하면 배포 폴더의 기존 리소스를 덮어쓰지 않고 원본과 다시 대조합니다.
+3. `bundle-manifest.json`에서 애니메이션 형식과 프레임 수, 포함된 각 리소스의 SHA-256, Windows 플랫폼 및 GIF 플러그인 경로, 설정 저장 위치를 확인합니다. 빌드 과정이 복사본의 해시와 플러그인 파일을 확인합니다. 원본이 없는 경우 빌드는 경고를 표시하고 매니페스트에 `missing`을 기록합니다. CMD에서 `"%LOCALAPPDATA%\KMate\v\Scripts\python.exe" tools\verify_bundle.py --bundle dist\KurimanjuMate`를 실행하면 배포 폴더의 기존 리소스를 덮어쓰지 않고 원본과 다시 대조합니다.
 
 실행과 빌드에는 CMD와 Python을 사용하며 관리자 권한이 필요 없습니다.
 

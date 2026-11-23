@@ -1,5 +1,5 @@
 @echo off
-setlocal
+setlocal DisableDelayedExpansion
 pushd "%~dp0" || exit /b 1
 if exist "dist\KurimanjuMate" (
     echo Move the existing dist\KurimanjuMate folder aside before rebuilding.
@@ -7,13 +7,13 @@ if exist "dist\KurimanjuMate" (
 )
 call ".\setup-windows.cmd" build
 if errorlevel 1 goto fail
-".venv-windows\Scripts\python.exe" -m unittest discover -s tests -v
+"%mate_python%" -m unittest discover -s tests -v
 if errorlevel 1 goto fail
-".venv-windows\Scripts\python.exe" tools\verify_bundle.py
+"%mate_python%" tools\verify_bundle.py
 if errorlevel 1 goto fail
-".venv-windows\Scripts\python.exe" -m PyInstaller --noconfirm --onedir --windowed --name KurimanjuMate run.py
+"%mate_python%" -m PyInstaller --noconfirm --onedir --windowed --name KurimanjuMate run.py
 if errorlevel 1 goto fail
-".venv-windows\Scripts\python.exe" tools\verify_bundle.py --bundle "dist\KurimanjuMate"
+"%mate_python%" tools\verify_bundle.py --bundle "dist\KurimanjuMate"
 if errorlevel 1 goto fail
 echo Build verified: dist\KurimanjuMate\KurimanjuMate.exe
 popd
