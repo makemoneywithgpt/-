@@ -1,0 +1,2 @@
+PySide6-Essentials>=6.8,<6.9
+PyInstaller>=6.11,<7
