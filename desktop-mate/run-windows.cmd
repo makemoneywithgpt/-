@@ -1,9 +1,9 @@
 @echo off
 setlocal
 pushd "%~dp0" || exit /b 1
-call setup-windows.cmd
+call ".\setup-windows.cmd"
 if errorlevel 1 goto fail
-".venv\Scripts\python.exe" run.py
+".venv-windows\Scripts\python.exe" run.py
 if errorlevel 1 goto fail
 popd
 exit /b 0

@@ -5,17 +5,15 @@ if exist "dist\KurimanjuMate" (
     echo Move the existing dist\KurimanjuMate folder aside before rebuilding.
     goto fail
 )
-call setup-windows.cmd
+call ".\setup-windows.cmd" build
 if errorlevel 1 goto fail
-".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -r requirements-build.txt
+".venv-windows\Scripts\python.exe" -m unittest discover -s tests -v
 if errorlevel 1 goto fail
-".venv\Scripts\python.exe" -m unittest discover -s tests -v
+".venv-windows\Scripts\python.exe" tools\verify_bundle.py
 if errorlevel 1 goto fail
-".venv\Scripts\python.exe" tools\verify_bundle.py
+".venv-windows\Scripts\python.exe" -m PyInstaller --noconfirm --onedir --windowed --name KurimanjuMate run.py
 if errorlevel 1 goto fail
-".venv\Scripts\python.exe" -m PyInstaller --noconfirm --onedir --windowed --name KurimanjuMate run.py
-if errorlevel 1 goto fail
-".venv\Scripts\python.exe" tools\verify_bundle.py --bundle "dist\KurimanjuMate"
+".venv-windows\Scripts\python.exe" tools\verify_bundle.py --bundle "dist\KurimanjuMate"
 if errorlevel 1 goto fail
 echo Build verified: dist\KurimanjuMate\KurimanjuMate.exe
 popd
