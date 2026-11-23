@@ -1,41 +1,38 @@
 # 쿠리만쥬 데스크톱 업무메이트
 
-Windows 10 1809 이상과 Windows 11을 대상으로 하는 Python 3.12 및 PySide6 6.8 앱입니다. 1단계에서는 투명한 항상 위 위젯, GIF 및 PNG 프레임 재생, 실시간 퇴근 말풍선을 제공합니다.
+투명 위젯에서 캐릭터를 재생하고 퇴근까지 남은 시간을 표시하는 1단계 MVP입니다. Windows 10 1809 이상 및 Windows 11의 x64 PC와 Python 3.12 x64를 대상으로 합니다.
 
-## Windows에서 실행
+## Windows 실기기에서 실행
 
-명령 프롬프트(cmd.exe)에서 이 폴더를 열고 실행하세요.
+1. ZIP을 쓰기 가능한 폴더에 압축 해제합니다. Python 3.12 x64를 설치합니다. CMD 스크립트는 Python Launcher의 `py -3.12` 또는 PATH의 `python`을 사용합니다.
+2. 움직이는 원본 GIF를 `assets/character.gif`로 복사하거나, 투명 PNG 프레임 두 장 이상을 `assets/frames/`에 넣습니다. 예를 들어 `001.png`, `002.png` 순으로 120ms 간격으로 재생됩니다. GIF는 원본 프레임 지연을 사용합니다. GIF와 PNG 폴더가 모두 있으면 GIF가 우선입니다.
+3. `run-windows.cmd`를 더블클릭합니다. 이 스크립트는 로컬 `.venv`를 만들고 `requirements.txt`의 PySide6 Essentials를 설치한 뒤 앱을 실행합니다. 최초 다운로드에는 인터넷이 필요합니다. 수동으로 실행하려면 CMD에서 `setup-windows.cmd`를 실행한 뒤 `.venv\Scripts\python.exe run.py`를 입력합니다.
 
-```bat
-py -3.12 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe run.py
-```
+기존에 선택한 캐릭터 경로가 있거나 파일명을 유지해야 한다면 위젯을 우클릭해 **설정**에서 GIF 또는 PNG 프레임 폴더를 선택하세요. 원본 경로와 바이트는 유지됩니다. 단일 PNG는 정지 이미지로 표시됩니다. 원본에 하늘 같은 불투명 배경이 있으면 화면에도 그대로 표시됩니다. 앱 창의 투명도는 원본 이미지의 배경을 제거하지 않습니다.
 
-원본 GIF를 `assets/character.gif`로 복사하거나, 원본 PNG 시퀀스를 `assets/frames/`에 복사하세요. 프레임은 파일명 숫자 순서로 120ms 간격으로 재생합니다. GIF는 원본 프레임 지연을 사용하며 계속 재생합니다. 파일명이나 폴더를 유지하려면 위젯을 우클릭해 **설정**에서 원본 경로를 선택하세요. 최초 실행 시 이미지가 없으면 말풍선에 파일 선택 안내가 표시됩니다.
+기본 일정은 PC 현지 시간 기준 09:00 출근, 12:00~13:00 점심, 18:00 퇴근입니다. 일정은 매일 반복되며 당일 근무만 지원합니다. Windows에서 크기, 위치, 시간, 사용자가 선택한 리소스 경로는 Qt의 사용자별 설정으로 `HKEY_CURRENT_USER\Software\DesktopMate\Kurimanju`에 저장됩니다. 배포 폴더에는 개인 설정 INI가 들어가지 않으며 기본값은 앱 코드에 포함됩니다. 소스 실행과 EXE는 같은 사용자 설정을 읽습니다.
 
-위젯을 드래그하면 위치를 변경할 수 있고, 짧게 클릭하면 2초 동안 응원 문구가 표시됩니다. 우클릭 메뉴에서 크기, 출근, 점심, 퇴근을 설정하거나 종료할 수 있습니다. 기본 일정은 컴퓨터 현지 시간 기준으로 09:00 출근, 12:00~13:00 점심, 18:00 퇴근입니다. 현재 일정은 매일 반복되며 자정을 넘는 근무는 지원 범위 밖입니다.
+## Windows EXE 빌드
 
-## 구조
+1. Windows PC에서 `build-windows.cmd`를 실행합니다. 스크립트가 PyInstaller를 설치하고 자동 테스트와 리소스 검사를 통과한 뒤 `dist\KurimanjuMate\KurimanjuMate.exe`를 빌드합니다. 기존 배포 폴더가 있다면 먼저 다른 이름이나 위치로 옮겨 주세요.
+2. 배포 시 `dist\KurimanjuMate` 폴더 전체를 유지합니다. 원본 리소스는 EXE 옆 `assets`에 그대로 복사됩니다. 우클릭으로 선택한 외부 파일을 EXE와 함께 배포하려면 빌드 전에 위의 `assets` 구조에 복사하세요.
+3. `bundle-manifest.json`에서 애니메이션 형식과 프레임 수, 포함된 각 리소스의 SHA-256, Windows 플랫폼 및 GIF 플러그인 경로, 설정 저장 위치를 확인합니다. 빌드 과정이 복사본의 해시와 플러그인 파일을 확인합니다. 원본이 없는 경우 빌드는 경고를 표시하고 매니페스트에 `missing`을 기록합니다. CMD에서 `.venv\Scripts\python.exe tools\verify_bundle.py --bundle dist\KurimanjuMate`를 실행하면 배포 폴더의 기존 리소스를 덮어쓰지 않고 원본과 다시 대조합니다.
+
+실행과 빌드에는 CMD와 Python을 사용하며 관리자 권한이 필요 없습니다.
+
+## 실기기 확인 순서
+
+- **소스 실행**에서 GIF 또는 PNG 프레임이 여러 번 반복되고, 원본의 투명 영역 뒤로 바탕화면이 보이는지 확인합니다.
+- 퇴근 예정 시각을 아직 지나지 않은 시각으로 설정해 말풍선이 초 단위로 줄어드는지 확인합니다. 퇴근 시각이 지나면 “퇴근 시간이에요!”가 표시됩니다.
+- **빌드된 EXE**에서도 같은 두 항목을 확인합니다. 패키징한 이미지를 검증하려면 우클릭 **설정**에서 배포 폴더의 `assets\character.gif` 또는 `assets\frames`를 직접 선택합니다. 이전에 저장한 외부 경로가 있을 수 있습니다.
+- 크기와 퇴근 시각을 바꾼 뒤 우클릭 메뉴로 종료하고 EXE를 다시 열어 사용자 설정이 유지되는지 확인합니다.
+
+## 프로젝트 구조
 
 | 경로 | 역할 |
 | --- | --- |
-| `run.py` | 앱 실행과 사용자별 설정 연결 |
-| `mate/schedule.py` | 시간대별 문구와 퇴근 카운트다운 계산 |
-| `mate/animation.py` | 원본 GIF 및 투명 PNG 재생 |
-| `mate/widget.py` | 투명 위젯, 말풍선, 입력 및 설정 |
-| `assets/` | 사용자가 제공하는 원본 리소스 위치 |
-| `tests/` | 시간 경계, 재생, 투명도, 입력 검사 |
-
-## 테스트와 EXE 빌드
-
-Windows 명령 프롬프트에서 다음 명령을 실행합니다.
-
-```bat
-.venv\Scripts\python.exe -m unittest discover -s tests -v
-.venv\Scripts\python.exe -m PyInstaller --noconfirm --onedir --windowed --name KurimanjuMate run.py
-```
-
-Windows의 빌드 출력은 `dist/KurimanjuMate/KurimanjuMate.exe`입니다. 배포 시 `KurimanjuMate` 폴더 전체를 유지하세요. 자동 검색을 쓰려면 EXE 옆에 `assets`를 둡니다. 빌드 및 실행에는 관리자 권한이나 별도의 실행 정책 설정이 필요 없습니다.
-
-실기기 검증에서는 EXE를 실행해 바탕화면 위 투명 합성, 원본 GIF 품질, 드래그, 크기 및 위치 복원을 확인합니다. 시간대별 캐릭터 행동과 Windows 자동실행 옵션은 후속 단계입니다.
+| `run.py`, `mate/` | 기존 MVP 실행 및 앱 로직 |
+| `run-windows.cmd`, `setup-windows.cmd` | Windows 실행 및 의존성 설치 |
+| `build-windows.cmd`, `tools/verify_bundle.py` | 빌드 및 리소스 검사 |
+| `assets/` | 사용자 원본 리소스 |
+| `tests/` | 카운트다운, 재생, 입력과 패키징 검사 |
