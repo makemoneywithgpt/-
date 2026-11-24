@@ -1,3 +1,0 @@
--r requirements.txt
-PyInstaller>=6.11,<7; python_version < "3.15"
-PyInstaller>=6.22.3,<7; python_version >= "3.15"
