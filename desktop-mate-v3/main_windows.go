@@ -519,7 +519,7 @@ func (a *mate) frameTick() {
 	if next := a.player.take(now); next != "" {
 		a.startAction(next, now)
 	} else if a.player.action == Idle && !a.s.QuietMode && !now.Before(a.nextAction) && !now.Before(a.player.ready) {
-		kind := selectAction(choicesAt(now, a.s, false), a.clips, a.player.last, a.rng.Intn(10000))
+		kind := a.player.automatic(choicesAt(now, a.s, false), a.clips, a.rng.Intn(10000))
 		if kind == Idle {
 			a.nextAction = now.Add(restFor(a.s.Frequency, a.rng.Intn(10000)))
 		} else {

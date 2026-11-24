@@ -49,3 +49,12 @@ func TestQueuedPreviewDoesNotInterrupt(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestSingleActionHasAdditionalIdleInterval(t *testing.T) {
+	p := playback{last: Work}
+	options := []choice{{Work, 1}}
+	clips := map[Behavior]clip{Work: {}}
+	if p.automatic(options, clips, 0) != Idle || p.automatic(options, clips, 0) != Work {
+		t.Fatal("only available action should repeat after one skipped interval")
+	}
+}

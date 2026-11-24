@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -47,5 +49,39 @@ func TestPackTiming(t *testing.T) {
 	delete(source, "next.png")
 	if _, err := readPack(source); err == nil || !strings.Contains(err.Error(), "next.png") {
 		t.Fatalf("expected missing frame error, got %v", err)
+	}
+}
+
+func TestDeliveredPackMatchesSourceTiming(t *testing.T) {
+	pack, err := readPack(os.DirFS("assets/actions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile("review/source-timing.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reports map[Behavior]struct {
+		FrameMS []int `json:"frame_ms"`
+		TotalMS int   `json:"total_ms"`
+	}
+	if err := json.Unmarshal(data, &reports); err != nil {
+		t.Fatal(err)
+	}
+	work := pack[Work]
+	want := reports[Work]
+	if len(work.images) != len(want.FrameMS) || len(work.images) != 50 ||
+		work.duration().Milliseconds() != int64(want.TotalMS) {
+		t.Fatal("delivered pack timing differs from original")
+	}
+	var elapsed time.Duration
+	for i, ms := range want.FrameMS {
+		elapsed += time.Duration(ms) * time.Millisecond
+		if work.ends[i] != elapsed {
+			t.Fatalf("frame %d timing differs", i+1)
+		}
+	}
+	if len(pack[Idle].images) != 1 || len(pack) != 2 {
+		t.Fatal("unexpected shipped clips")
 	}
 }

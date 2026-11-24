@@ -122,3 +122,12 @@ func (p *playback) take(now time.Time) Behavior {
 	p.pending = ""
 	return kind
 }
+
+// With one eligible clip, reserve an additional idle interval before repeating it.
+func (p *playback) automatic(choices []choice, clips map[Behavior]clip, roll int) Behavior {
+	kind := selectAction(choices, clips, p.last, roll)
+	if kind == Idle && selectAction(choices, clips, Idle, roll) != Idle {
+		p.last = Idle
+	}
+	return kind
+}
