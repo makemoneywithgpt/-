@@ -50,11 +50,37 @@ func TestQueuedPreviewDoesNotInterrupt(t *testing.T) {
 	}
 }
 
-func TestSingleActionHasAdditionalIdleInterval(t *testing.T) {
-	p := playback{last: Work}
-	options := []choice{{Work, 1}}
+func TestAutomaticTransitionsAndDiagnostics(t *testing.T) {
+	now := tdate(23, 10, 0, 0)
+	p := playback{action: Idle, last: Work}
 	clips := map[Behavior]clip{Work: {}}
-	if p.automatic(options, clips, 0) != Idle || p.automatic(options, clips, 0) != Work {
-		t.Fatal("only available action should repeat after one skipped interval")
+	s := defaultSettings()
+	status := func(at, due time.Time, preview bool) autoStatus {
+		return automaticStatus(at, due, p, s, clips, preview, 0)
+	}
+	if status(now, now.Add(20*time.Second), false).action != Idle ||
+		status(now.Add(20*time.Second), now.Add(20*time.Second), false).action != Work {
+		t.Fatal("scheduled work should start at the deadline without a click")
+	}
+	lunch := tdate(23, 12, 20, 0)
+	if result := status(lunch, lunch, false); result.action != Idle || result.reason == "" {
+		t.Fatal("expected unavailable time-slot diagnostics")
+	}
+	s.QuietMode = true
+	if status(lunch, lunch, false).action != Idle {
+		t.Fatal("quiet mode should disable automatic playback")
+	}
+	due := lunch.Add(previewInterval)
+	if status(due.Add(-time.Millisecond), due, true).action != Idle || status(due, due, true).action != Work {
+		t.Fatal("five-second test should play at its deadline even at lunch and in quiet mode")
+	}
+	p.start(Work, due, 1720*time.Millisecond)
+	p.advance(due.Add(1719 * time.Millisecond))
+	if p.action != Work || status(due.Add(time.Second), due, true).action != Idle {
+		t.Fatal("clip was interrupted or restarted early")
+	}
+	p.advance(due.Add(1720 * time.Millisecond))
+	if p.action != Idle {
+		t.Fatal("special must return to idle, even without an idle image")
 	}
 }

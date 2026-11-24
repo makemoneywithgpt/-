@@ -276,6 +276,7 @@ type mate struct {
 	spriteRect   image.Rectangle
 	player       playback
 	nextAction   time.Time
+	previewAuto  bool
 	rng          *rand.Rand
 	bubble       *image.RGBA
 	labels       map[string]*image.RGBA
@@ -347,8 +348,11 @@ func (a *mate) loadSettings() {
 	if err != nil {
 		return
 	}
-	a.configFile = filepath.Join(dir, "KurimanjuMateV3", "settings.json")
+	a.configFile = filepath.Join(dir, "KurimanjuMateV31", "settings.json")
 	body, err := os.ReadFile(a.configFile)
+	if os.IsNotExist(err) {
+		body, err = os.ReadFile(filepath.Join(dir, "KurimanjuMateV3", "settings.json"))
+	}
 	if os.IsNotExist(err) {
 		body, err = os.ReadFile(filepath.Join(dir, "KurimanjuMateNext", "settings.json"))
 	}
@@ -480,15 +484,24 @@ func (a *mate) render() {
 		a.surface.memDC, uintptr(unsafe.Pointer(&source)), 0, uintptr(unsafe.Pointer(&blend)), ulwAlpha)
 }
 
+func (a *mate) rest() time.Duration {
+	if a.previewAuto {
+		return previewInterval
+	}
+	return restFor(a.s.Frequency, a.rng.Intn(10000))
+}
+
 func (a *mate) startAction(kind Behavior, now time.Time) {
 	duration := time.Duration(0)
-	if active, ok := a.clips[kind]; ok {
+	if kind != Idle {
+		active, ok := a.clips[kind]
+		if !ok {
+			return
+		}
 		duration = active.duration()
-	} else if kind != Idle {
-		return
 	}
 	a.player.start(kind, now, duration)
-	a.nextAction = now.Add(restFor(a.s.Frequency, a.rng.Intn(10000)))
+	a.nextAction = a.player.until.Add(a.rest())
 }
 
 func (a *mate) requestAction(kind Behavior, now time.Time) {
@@ -515,15 +528,19 @@ func (a *mate) armTimer(now time.Time) {
 
 func (a *mate) frameTick() {
 	now := time.Now()
+	wasSpecial := a.player.action != Idle
 	a.player.advance(now)
+	if wasSpecial && a.player.action == Idle {
+		a.nextAction = now.Add(a.rest())
+	}
 	if next := a.player.take(now); next != "" {
 		a.startAction(next, now)
-	} else if a.player.action == Idle && !a.s.QuietMode && !now.Before(a.nextAction) && !now.Before(a.player.ready) {
-		kind := a.player.automatic(choicesAt(now, a.s, false), a.clips, a.rng.Intn(10000))
-		if kind == Idle {
-			a.nextAction = now.Add(restFor(a.s.Frequency, a.rng.Intn(10000)))
-		} else {
-			a.startAction(kind, now)
+	} else if !now.Before(a.nextAction) {
+		status := automaticStatus(now, a.nextAction, a.player, a.s, a.clips, a.previewAuto, a.rng.Intn(10000))
+		if status.action != Idle {
+			a.startAction(status.action, now)
+		} else if a.player.action == Idle && !now.Before(a.player.ready) {
+			a.nextAction = now.Add(a.rest())
 		}
 	}
 	a.render()
@@ -581,7 +598,7 @@ func setAutoRun(enabled bool) error {
 		return fmt.Errorf("레지스트리에 접근하지 못했습니다 (코드 %d)", ret)
 	}
 	defer regCloseKey.Call(h)
-	name := syscall.StringToUTF16Ptr("KurimanjuMateV3")
+	name := syscall.StringToUTF16Ptr("KurimanjuMateV31")
 	if !enabled {
 		ret, _, _ := regDeleteValue.Call(h, uintptr(unsafe.Pointer(name)))
 		if ret != 0 && ret != 2 {
@@ -611,7 +628,7 @@ func isAutoRun() bool {
 	}
 	defer regCloseKey.Call(h)
 	query := advapi32.NewProc("RegQueryValueExW")
-	name := syscall.StringToUTF16Ptr("KurimanjuMateV3")
+	name := syscall.StringToUTF16Ptr("KurimanjuMateV31")
 	var needed uint32
 	r, _, _ := query.Call(h, uintptr(unsafe.Pointer(name)), 0, 0, 0, uintptr(unsafe.Pointer(&needed)))
 	return r == 0
@@ -640,15 +657,17 @@ func (a *mate) contextMenu() {
 	if m == 0 {
 		return
 	}
-	if a.packError != "" {
-		menuAppend(m, 615, "동작 팩 상태", false)
-	} else {
+	menuAppend(m, 615, "자동 동작 진단", false)
+	if len(a.clips) > 0 {
 		preview, _, _ := createPopupMenu.Call()
 		if preview != 0 {
 			for i, action := range actions {
 				if _, ok := a.clips[action.kind]; ok {
 					menuAppend(preview, uintptr(801+i), action.name, false)
 				}
+			}
+			if _, ok := a.clips[Work]; ok {
+				menuAppend(preview, 616, "풀뽑기 5초 간격 테스트", a.previewAuto)
 			}
 			appendMenu.Call(m, mfPopup, preview, textPtr("동작 미리보기"))
 		}
@@ -754,15 +773,28 @@ func (a *mate) command(n int) {
 		now := time.Now()
 		a.requestAction(actions[n-801].kind, now)
 	case n == 615:
-		a.alert("동작 팩 상태", a.packError)
+		now := time.Now()
+		state := automaticStatus(now, a.nextAction, a.player, a.s, a.clips, a.previewAuto, 0)
+		detail := fmt.Sprintf("%s\n시각: %s  |  시간대: %s\n다음 확인: %s  |  5초 테스트: %t",
+			state.reason, now.Format("15:04:05"), statusAt(now, a.s).Label, a.nextAction.Format("15:04:05"), a.previewAuto)
+		if _, ok := a.clips[Idle]; !ok {
+			detail += "\n대기 이미지: idle_basic.png 미제공"
+		}
+		if a.packError != "" {
+			detail += "\n동작 팩: " + a.packError
+		}
+		a.alert("자동 동작 진단", detail)
+	case n == 616:
+		a.previewAuto = !a.previewAuto
+		a.nextAction = time.Now().Add(a.rest())
 	case n >= 821 && n <= 823:
 		a.s.Frequency = n - 821
-		a.nextAction = time.Now().Add(restFor(a.s.Frequency, a.rng.Intn(10000)))
+		a.nextAction = time.Now().Add(a.rest())
 		a.saveSettings()
 	case n == 614:
 		a.s.QuietMode = !a.s.QuietMode
 		if !a.s.QuietMode {
-			a.nextAction = time.Now().Add(restFor(a.s.Frequency, a.rng.Intn(10000)))
+			a.nextAction = time.Now().Add(a.rest())
 		}
 		a.saveSettings()
 	case n == 610:
@@ -862,7 +894,7 @@ func run() error {
 	app.defaultPosition()
 	app.startup = isAutoRun()
 	inst, _, _ := getModuleHandle.Call(0)
-	className := syscall.StringToUTF16Ptr("KurimanjuMateWindowV3")
+	className := syscall.StringToUTF16Ptr("KurimanjuMateWindowV31")
 	wnd := wndClassEx{Size: uint32(unsafe.Sizeof(wndClassEx{})), WndProc: syscall.NewCallback(windowProc), Instance: inst, ClassName: uintptr(unsafe.Pointer(className))}
 	ret, _, _ := registerClass.Call(uintptr(unsafe.Pointer(&wnd)))
 	if ret == 0 {
@@ -872,7 +904,7 @@ func run() error {
 	if app.s.AlwaysOnTop {
 		ex |= exTopmost
 	}
-	hwnd, _, _ := createWindow.Call(ex, uintptr(unsafe.Pointer(className)), textPtr("Kurimanju Mate 3.0"), wsPopup,
+	hwnd, _, _ := createWindow.Call(ex, uintptr(unsafe.Pointer(className)), textPtr("Kurimanju Mate 3.1"), wsPopup,
 		uintptr(app.x), uintptr(app.y), uintptr(app.w), uintptr(app.h), 0, 0, inst, 0)
 	if hwnd == 0 {
 		return fmt.Errorf("Windows 위젯 창 생성 실패")

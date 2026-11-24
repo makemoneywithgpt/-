@@ -4,12 +4,6 @@
     226
   ],
   "clips": {
-    "idle_basic": [
-      {
-        "file": "work_pull/0001.png",
-        "ms": 1000
-      }
-    ],
     "work_pull": [
       {
         "file": "work_pull/0001.png",

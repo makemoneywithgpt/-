@@ -42,16 +42,20 @@ def assemble(recipe: Path, output: Path) -> None:
     if any(type(edge) is not int or not 1 <= edge <= 4096 for edge in (width, height)):
         raise ValueError("canvas dimensions must be integers from 1 to 4096")
     clips = data["clips"]
-    if "idle_basic" not in clips or clips.keys() - set(ACTIONS):
-        raise ValueError("Provide idle_basic and only supported clips")
+    if not clips or clips.keys() - set(ACTIONS):
+        raise ValueError("Provide supported clips or an idle image")
     definitions, report = {}, {}
     for action, frames in clips.items():
         if not frames:
             raise ValueError(f"{action}: empty clip")
-        (output / action).mkdir()
+        if action == "idle_basic":
+            if len(frames) != 1:
+                raise ValueError("idle_basic must be one reviewed still")
+        else:
+            (output / action).mkdir()
         definitions[action], report[action] = [], []
         for index, entry in enumerate(frames, start=1):
-            name = f"{action}/{index:04}.png"
+            name = "idle_basic.png" if action == "idle_basic" else f"{action}/{index:04}.png"
             ms = entry["ms"]
             x, y = entry.get("offset", [0, 0])
             if type(ms) is not int or not 1 <= ms <= 2_147_483_647 or any(type(v) is not int for v in (x, y)):
@@ -80,7 +84,9 @@ def assemble(recipe: Path, output: Path) -> None:
             definitions[action].append({"file": name, "ms": ms})
             report[action].append({"file": name, "ms": ms, "bounds": placed,
                                    "size": [right - left, bottom - top]})
-    write_json(output / "pack.json", {"canvas": [width, height], "clips": definitions})
+    definitions.pop("idle_basic", None)
+    if definitions:
+        write_json(output / "pack.json", {"canvas": [width, height], "clips": definitions})
     write_json(output / "alignment-report.json", report)
 
 
@@ -124,7 +130,7 @@ def main() -> int:
     compare_args = commands.add_parser("compare")
     compare_args.add_argument("raw", type=Path)
     compare_args.add_argument("pack", type=Path)
-    compare_args.add_argument("action", choices=ACTIONS)
+    compare_args.add_argument("action", choices=ACTIONS[1:])
     compare_args.add_argument("output", type=Path)
     args = parser.parse_args()
     try:

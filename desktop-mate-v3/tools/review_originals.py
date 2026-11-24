@@ -31,7 +31,7 @@ def write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def work_alpha(frame, index):
+def work_mask(frame, index):
     pixels = np.array(frame)
     red, green, blue = pixels.astype(np.int16).transpose(2, 0, 1)
     y, x = np.indices(red.shape)
@@ -65,9 +65,38 @@ def work_alpha(frame, index):
                               cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
     hand_y = (193, 239) if index < 26 else (140, 214)
     hand = (y >= hand_y[0]) & (y <= hand_y[1]) & (x < (210 if index < 26 else 214))
-    alpha = cv2.GaussianBlur(np.where(hand, solid, opened), (3, 3), 0.55)
-    pixels[alpha == 0] = 0
-    return Image.fromarray(np.dstack((pixels, alpha))).crop(CROPS["work_pull"])
+    return np.where(hand, solid, opened)
+
+
+def work_cutouts(frames):
+    area = CROPS["work_pull"]
+    left, top, right, bottom = area
+    masks = [work_mask(frame, index)[top:bottom, left:right]
+             for index, frame in enumerate(frames)]
+    source = [np.array(frame.crop(area)) for frame in frames]
+    gray = [cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY) for rgb in source]
+    yy, xx = np.indices(masks[0].shape, dtype=np.float32)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    crop_x, crop_y = xx + left, yy + top
+    result = []
+    for index, (mask, pixels) in enumerate(zip(masks, source)):
+        if 0 < index < len(masks) - 1:
+            neighbors = [mask]
+            for neighbor in (index - 1, index + 1):
+                flow = cv2.calcOpticalFlowFarneback(gray[index], gray[neighbor], None,
+                                                    0.5, 3, 15, 3, 5, 1.2, 0)
+                warped = cv2.remap(masks[neighbor], xx + flow[..., 0], yy + flow[..., 1],
+                                   cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT)
+                neighbors.append(warped)
+            vote = np.median(neighbors, axis=0).astype(np.uint8)
+            boundary = cv2.dilate(mask, kernel) != cv2.erode(mask, kernel)
+            hand = (crop_x < 214) & (crop_y >= 140) & (crop_y <= 239)
+            mask = np.where(boundary & ~hand, vote, mask)
+        alpha = cv2.GaussianBlur(mask, (3, 3), 0.55)
+        masked = pixels.copy()
+        masked[alpha == 0] = 0
+        result.append(Image.fromarray(np.dstack((masked, alpha))))
+    return result
 
 
 def composite(image, size, color):
@@ -126,7 +155,7 @@ def main():
         if key == "work_pull":
             if digest != WORK_SHA or size != (498, 281) or len(frames) != 50:
                 raise ValueError("The reviewed masks are specific to the uploaded work GIF.")
-            cutouts = [work_alpha(frame, index) for index, frame in enumerate(frames)]
+            cutouts = work_cutouts(frames)
             clip, bounds = [], []
             for index, (frame, ms) in enumerate(zip(cutouts, durations), 1):
                 name = f"work_pull/{index:04}.png"
@@ -138,7 +167,7 @@ def main():
                 bounds.append(box)
             write_json(pack / "pack.json", {
                 "canvas": list(cutouts[0].size),
-                "clips": {"idle_basic": [{"file": clip[0]["file"], "ms": 1000}], "work_pull": clip},
+                "clips": {"work_pull": clip},
             })
             report.update(status="applied", bounds=bounds, output_frame_ms=durations)
             movies = []

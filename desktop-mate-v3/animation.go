@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -46,21 +47,21 @@ func readPack(source fs.FS) (map[Behavior]clip, error) {
 	if len(spec.Canvas) != 2 || spec.Canvas[0] < 3 || spec.Canvas[0] > 4096 || spec.Canvas[1] < 3 || spec.Canvas[1] > 4096 {
 		return nil, fmt.Errorf("canvas must have two dimensions between 3 and 4096")
 	}
-	if len(spec.Clips[Idle]) == 0 {
-		return nil, fmt.Errorf("idle_basic clip is required")
+	if len(spec.Clips) == 0 {
+		return nil, fmt.Errorf("at least one special clip is required")
 	}
 	canvas := image.Rect(0, 0, spec.Canvas[0], spec.Canvas[1])
 	clips := make(map[Behavior]clip)
 	images := make(map[string]image.Image)
 	const pixelBudget = 32 * 1024 * 1024
 	for kind, frames := range spec.Clips {
-		if (kind != Idle && kind != Can && kind != Lemon && kind != Soup && kind != Work) || len(frames) == 0 {
+		if (kind != Can && kind != Lemon && kind != Soup && kind != Work) || len(frames) == 0 {
 			return nil, fmt.Errorf("unsupported or empty clip %q", kind)
 		}
 		var result clip
 		var elapsed time.Duration
 		for _, frame := range frames {
-			if frame.MS < 1 || frame.MS > 2_147_483_647 || !fs.ValidPath(frame.File) ||
+			if frame.File == "idle_basic.png" || frame.MS < 1 || frame.MS > 2_147_483_647 || !fs.ValidPath(frame.File) ||
 				strings.Contains(frame.File, `\`) || strings.ToLower(path.Ext(frame.File)) != ".png" {
 				return nil, fmt.Errorf("%s: invalid frame file or duration: %q", kind, frame.File)
 			}
@@ -80,6 +81,12 @@ func readPack(source fs.FS) (map[Behavior]clip, error) {
 			result.ends = append(result.ends, elapsed)
 		}
 		clips[kind] = result
+	}
+	idle, err := readFrame(source, "idle_basic.png", canvas)
+	if err == nil {
+		clips[Idle] = clip{images: []image.Image{idle}, ends: []time.Duration{time.Second}}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return clips, fmt.Errorf("idle_basic.png: %w", err)
 	}
 	return clips, nil
 }

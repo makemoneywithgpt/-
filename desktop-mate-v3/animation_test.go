@@ -26,7 +26,7 @@ func fixturePNG(t *testing.T, x int) []byte {
 
 func TestPackTiming(t *testing.T) {
 	source := fstest.MapFS{
-		"pack.json": {Data: []byte(`{"canvas":[8,8],"clips":{"idle_basic":[{"file":"first.png","ms":580},{"file":"next.png","ms":70}]}}`)},
+		"pack.json": {Data: []byte(`{"canvas":[8,8],"clips":{"work_pull":[{"file":"first.png","ms":580},{"file":"next.png","ms":70}]}}`)},
 		"first.png": {Data: fixturePNG(t, 2)},
 		"next.png":  {Data: fixturePNG(t, 4)},
 	}
@@ -34,7 +34,7 @@ func TestPackTiming(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idle := pack[Idle]
+	idle := pack[Work]
 	for _, tc := range []struct{ elapsed, x, wait int }{{0, 2, 580}, {579, 2, 1}, {580, 4, 70}, {650, 2, 580}} {
 		frame, next := idle.frameAt(time.Duration(tc.elapsed) * time.Millisecond)
 		_, _, _, alpha := frame.At(tc.x, 4).RGBA()
@@ -81,7 +81,27 @@ func TestDeliveredPackMatchesSourceTiming(t *testing.T) {
 			t.Fatalf("frame %d timing differs", i+1)
 		}
 	}
-	if len(pack[Idle].images) != 1 || len(pack) != 2 {
+	if _, exists := pack[Idle]; exists || len(pack) != 1 {
 		t.Fatal("unexpected shipped clips")
+	}
+}
+
+func TestIdleLoadsFromIndependentStillOnly(t *testing.T) {
+	source := fstest.MapFS{
+		"pack.json": {Data: []byte(`{"canvas":[8,8],"clips":{"work_pull":[{"file":"work.png","ms":30}]}}`)},
+		"work.png":  {Data: fixturePNG(t, 2)},
+	}
+	pack, err := readPack(source)
+	if err != nil || len(pack[Idle].images) != 0 {
+		t.Fatalf("missing idle must not use work frames: %v", err)
+	}
+	source["idle_basic.png"] = &fstest.MapFile{Data: fixturePNG(t, 4)}
+	pack, err = readPack(source)
+	if err != nil || len(pack[Idle].images) != 1 || pack[Idle].images[0] == pack[Work].images[0] {
+		t.Fatalf("distinct still not loaded: %v", err)
+	}
+	source["pack.json"].Data = []byte(`{"canvas":[8,8],"clips":{"idle_basic":[{"file":"work.png","ms":30}]}}`)
+	if _, err := readPack(source); err == nil {
+		t.Fatal("legacy idle alias must be rejected")
 	}
 }

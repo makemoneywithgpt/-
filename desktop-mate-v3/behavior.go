@@ -123,11 +123,36 @@ func (p *playback) take(now time.Time) Behavior {
 	return kind
 }
 
-// With one eligible clip, reserve an additional idle interval before repeating it.
-func (p *playback) automatic(choices []choice, clips map[Behavior]clip, roll int) Behavior {
-	kind := selectAction(choices, clips, p.last, roll)
-	if kind == Idle && selectAction(choices, clips, Idle, roll) != Idle {
-		p.last = Idle
+const previewInterval = 5 * time.Second
+
+type autoStatus struct {
+	action Behavior
+	reason string
+}
+
+func automaticStatus(now, due time.Time, p playback, s Settings, clips map[Behavior]clip, preview bool, roll int) autoStatus {
+	if !preview && s.QuietMode {
+		return autoStatus{Idle, "랜덤 행동이 꺼져 있습니다."}
 	}
-	return kind
+	if p.action != Idle || now.Before(p.ready) {
+		return autoStatus{Idle, "현재 동작이나 대기 전환이 끝나기를 기다립니다."}
+	}
+	candidates := choicesAt(now, s, false)
+	if preview {
+		candidates = []choice{{Work, 1}}
+	}
+	if len(candidates) == 0 {
+		return autoStatus{Idle, "현재 시간대에는 예약된 자동 동작이 없습니다."}
+	}
+	kind := selectAction(candidates, clips, p.last, roll)
+	if kind == Idle {
+		kind = selectAction(candidates, clips, Idle, roll)
+	}
+	if kind == Idle {
+		return autoStatus{Idle, "현재 시간대에 맞는 동작 팩이 없습니다."}
+	}
+	if now.Before(due) {
+		return autoStatus{Idle, "다음 재생 시각을 기다리고 있습니다."}
+	}
+	return autoStatus{kind, "재생 가능합니다."}
 }
